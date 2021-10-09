@@ -1,0 +1,137 @@
+#!/usr/bin/env node
+
+/**
+ * Module dependencies.
+ */
+
+var { app, getDBContext } = require('../app');
+var debug = require('debug')('node-mongodb:server');
+var http = require('http');
+var mongoose = require('mongoose');
+var moment = require('moment');
+		
+
+/**
+ * Get port from environment and store in Express.
+ */
+
+var port = normalizePort(process.env.PORT || '3000');
+app.set('port', port);
+
+/**
+ * Create HTTP server.
+ */
+
+var server = http.createServer(app);
+var io = require('socket.io')(server);
+
+/**
+ * Listen on provided port, on all network interfaces.
+ */
+server.listen(port);
+
+mongoose.connection.once('open', function() {
+	var generalMessage = mongoose.model('generalMessages');
+	var user = mongoose.model('users');
+	var error = new Error();
+	io.on('connection', (socket) => {	
+		socket.on('SEND_MESSAGE', function(data){
+			var user_idx = {
+				"_id": data.user
+			};
+
+			user.find(user_idx, function (err, user) {
+				if (err) next(err);
+				if (user[0]) {					
+					
+					var msg = new generalMessage({
+						userId: data.user,
+						user: user[0].name,
+						message: data.message,
+						date: new Date()
+					});
+					var res_msg = {
+						user: user[0].name,
+						message: data.message,
+						date: new Date()
+					};
+					msg.save();
+					io.emit('RECEIVE_MESSAGE', res_msg);
+				} else {
+					error.name = 'BadRequest';
+					error.message = 'Finding the user is Failed.';
+					error.status = 400;
+					next(error);
+				}
+			});			
+		});
+    
+    socket.on('SEND_SIGNAL', function(data){
+      io.emit('RECEIVE_SIGNAL', data);
+    });
+	});
+});
+
+
+server.on('error', onError);
+server.on('listening', onListening);
+
+/**
+ * Normalize a port into a number, string, or false.
+ */
+
+function normalizePort(val) {
+  var port = parseInt(val, 10);
+
+  if (isNaN(port)) {
+    // named pipe
+    return val;
+  }
+
+  if (port >= 0) {
+    // port number
+    return port;
+  }
+
+  return false;
+}
+
+/**
+ * Event listener for HTTP server "error" event.
+ */
+
+function onError(error) {
+  if (error.syscall !== 'listen') {
+    throw error;
+  }
+
+  var bind = typeof port === 'string'
+    ? 'Pipe ' + port
+    : 'Port ' + port;
+
+  // handle specific listen errors with friendly messages
+  switch (error.code) {
+    case 'EACCES':
+      console.error(bind + ' requires elevated privileges');
+      process.exit(1);
+      break;
+    case 'EADDRINUSE':
+      console.error(bind + ' is already in use');
+      process.exit(1);
+      break;
+    default:
+      throw error;
+  }
+}
+
+/**
+ * Event listener for HTTP server "listening" event.
+ */
+
+function onListening() {
+  var addr = server.address();
+  var bind = typeof addr === 'string'
+    ? 'pipe ' + addr
+    : 'port ' + addr.port;
+  debug('Listening on ' + bind);
+}
